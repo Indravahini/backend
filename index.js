@@ -1,7 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql');
-const bcrypt = require('bcrypt');
+// const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const { v4: uuidv4 } = require('uuid');
@@ -28,7 +29,7 @@ db.connect(err => {
 
 
 // Retrieve all products
-app.get('/', (req, res) => {
+app.get('/api/', (req, res) => {
     const department = req.query.department;  
     const location = req.query.location;
 
@@ -50,7 +51,7 @@ app.get('/', (req, res) => {
 }); 
 
 // Retrieve a product by ID
-app.get("/product/:id", (req, res) => {
+app.get("/api/product/:id", (req, res) => {
     const sql = "SELECT * FROM product WHERE `S.no` = ?";
     const id = req.params.id;
     db.query(sql, [id], (err, data) => {
@@ -61,7 +62,7 @@ app.get("/product/:id", (req, res) => {
 });
 
 //Add products
-app.post('/create', (req, res) => {
+app.post('/api/create', (req, res) => {
     console.log('Received data for creation:', req.body);
 
     const product = req.body; 
@@ -130,7 +131,7 @@ app.post('/create', (req, res) => {
 });
 
 //Incharge details filling
-app.get('/incharge/:location', (req, res) => {
+app.get('/api/incharge/:location', (req, res) => {
     const location = req.params.location;
     const sql = "SELECT incharge_name, incharge_phoneno, incharge_mail FROM incharge WHERE Location = ?";
     db.query(sql, [location], (err, data) => {
@@ -146,7 +147,7 @@ app.get('/incharge/:location', (req, res) => {
 });
 
 //changes in used,consumed etc
-app.put('/update/:id', (req, res) => {
+app.put('/api/update/:id', (req, res) => {
     const { count, destroyed, name } = req.body;
     
     const selectSql = "SELECT count, destroyed, used FROM product WHERE `S.no` = ?";
@@ -188,7 +189,7 @@ app.put('/update/:id', (req, res) => {
 });
 
 // Delete a product by ID
-app.delete('/product/:id', (req, res) => {
+app.delete('/api/product/:id', (req, res) => {
     const sql = "DELETE FROM product WHERE `S.no` = ?";
     const id = req.params.id;
     console.log('Deleting product with S.no:', id);
@@ -211,30 +212,26 @@ app.delete('/product/:id', (req, res) => {
 
 
 // Retrieve all stocks
-app.get('/stock', (req, res) => {
+app.get('/api/stock', (req, res) => {
     const department = req.query.department;
     const location = req.query.location;
-    const status = req.query.status; // New query parameter for status
+    const status = req.query.status;
 
     let query = 'SELECT * FROM stock';
     let queryParams = [];
 
-    // Build the WHERE clause based on the parameters
-    if (department !== 'Management') {
-        query += ' WHERE department = ?'; // Use department for filtering
+    if (department && department.toLowerCase() !== 'management') {
+        // Filter by department
+        query += ' WHERE location = ?';
         queryParams.push(department);
 
-        if (location) {
-            query += ' AND location = ?'; // Apply location filter if provided
-            queryParams.push(location);
+        if (status) {
+            query += ' AND status = ?';
+            queryParams.push(status);
         }
-    } else if (location) {
-        query += ' WHERE location = ?'; // Apply location filter if provided
-        queryParams.push(location);
-    }
-
-    if (status) {
-        query += queryParams.length ? ' AND status = ?' : ' WHERE status = ?';
+    } else if (status) {
+        // Show all data but filter by status
+        query += ' WHERE status = ?';
         queryParams.push(status);
     }
 
@@ -245,10 +242,11 @@ app.get('/stock', (req, res) => {
         }
         return res.json(results);
     });
-});
+}); 
+
 
 // Retrieve a stock by ID
-app.get("/stock/:id", (req, res) => {
+app.get("/api/stock/:id", (req, res) => {
     const sql = "SELECT * FROM stock WHERE `S.no` = ?";
     const id = req.params.id;
     db.query(sql, [id], (err, data) => {
@@ -259,7 +257,7 @@ app.get("/stock/:id", (req, res) => {
 });
 
 //Sending Request
-app.post('/request', (req, res) => {
+app.post('/api/request', (req, res) => {
     const { product, project, student_name, student_id, quantity, type, location } = req.body;
 
     // Insert into the requests table
@@ -274,7 +272,7 @@ app.post('/request', (req, res) => {
 });
 
 // Endpoint to fetch unique locations
-app.get('/locations', (req, res) => {
+app.get('/api/locations', (req, res) => {
   const query = 'SELECT DISTINCT location FROM requests'; 
 
   db.query(query, (err, result) => {
@@ -288,7 +286,7 @@ app.get('/locations', (req, res) => {
 });
 
 //RequestPopup
-app.get('/requests', (req, res) => {
+app.get('/api/requests', (req, res) => {
     const { department, location } = req.query;
 
     let query = 'SELECT * FROM requests';
@@ -317,7 +315,7 @@ app.get('/requests', (req, res) => {
 });
 
 //Approving of request in RequestPopup
-app.post('/approve-requests', (req, res) => {
+app.post('/api/approve-requests', (req, res) => {
     const approvals = req.body.approvals;
 
     if (!approvals || typeof approvals !== 'object') {
@@ -387,7 +385,7 @@ app.post('/approve-requests', (req, res) => {
 });
 
 // Update stock status and adjust quantities
-app.put('/updateStatus/:id', (req, res) => {
+app.put('/api/updateStatus/:id', (req, res) => {
     const { status, type, quantity } = req.body;
     const id = req.params.id;
 
@@ -428,7 +426,7 @@ app.put('/updateStatus/:id', (req, res) => {
     });
 });
   
-app.put('/updateType/:id', (req, res) => {
+app.put('/api/updateType/:id', (req, res) => {
     const { type } = req.body;
     const id = req.params.id;
 
@@ -477,7 +475,7 @@ app.put('/updateType/:id', (req, res) => {
     }
 });
 
-app.get('/stock-details/:productName', async (req, res) => {
+app.get('/api/stock-details/:productName', async (req, res) => {
   try {
     const productName = req.params.productName;
     const stocks = await db.query('SELECT student_id, student_name, Quantity FROM stock WHERE product = ?', [productName]);
@@ -489,7 +487,7 @@ app.get('/stock-details/:productName', async (req, res) => {
 });
 
 
-app.get('/pending-requests-count', (req, res) => {
+app.get('/api/pending-requests-count', (req, res) => {
     const { department } = req.query;
 
     let query;
@@ -512,7 +510,7 @@ app.get('/pending-requests-count', (req, res) => {
     });
 });
 
-app.get('/inventory-stats', (req, res) => {
+app.get('/api/inventory-stats', (req, res) => {
     const { department } = req.query;
 
     let query;
@@ -560,6 +558,10 @@ app.get('/inventory-stats', (req, res) => {
 
 const pendingRegistrations = {};
 
+const adminEmail = 'sit22cs021@sairamtap.edu.in'; // Admin's email address
+
+
+
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -568,58 +570,57 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-const adminEmail = 'sit22cs021@sairamtap.edu.in'; // Admin's email address
 
-app.post('/register', async (req, res) => {
-  const { username, email, password, department, college } = req.body;
+app.post('/api/register', async (req, res) => {
+    const { username, email, password, department, college } = req.body;
 
-  if (!username || !email || !password || !department || !college) {
-    return res.status(400).json({ error: "All fields are required." });
-  }
+    if (!username || !email || !password || !department || !college) {
+        return res.status(400).json({ error: "All fields are required." });
+    }
 
-  try {
-    const sqlCheckEmail = "SELECT * FROM student WHERE email = ?";
-    db.query(sqlCheckEmail, [email], async (err, results) => {
-      if (err) {
-        console.error('Error checking email:', err.message, err.stack);
-        return res.status(500).json({ error: "An error occurred during registration." });
-      }
+    try {
+        const sqlCheckEmail = "SELECT * FROM student WHERE email = ?";
+        db.query(sqlCheckEmail, [email], async (err, results) => {
+            if (err) {
+                console.error('Error checking email:', err.message, err.stack);
+                return res.status(500).json({ error: "An error occurred during registration." });
+            }
 
-      if (results.length > 0) {
-        return res.status(400).json({ error: "Email already exists." });
-      }
+            if (results.length > 0) {
+                return res.status(400).json({ error: "Email already exists." });
+            }
 
-      const hashedPassword = await bcrypt.hash(password, 10);
+            const hashedPassword = crypto.createHash('sha256').update(password).digest('hex');
 
-      // Generate a unique confirmation ID
-      const confirmationId = uuidv4();
+            // Generate a unique confirmation ID
+            const confirmationId = uuidv4();
 
-      // Store the registration details in pendingRegistrations
-      pendingRegistrations[confirmationId] = { username, email, hashedPassword, department, college };
+            // Store the registration details in pendingRegistrations
+            pendingRegistrations[confirmationId] = { username, email, hashedPassword, department, college };
 
-      const mailOptions = {
-        from: 'niroshini.bmk@gmail.com', // Server email
-        to: adminEmail,
-        subject: 'New Registration Request',
-        text: `A new registration request has been made by ${username} (${email}). To approve, please click the following link: http://localhost:8081/confirm/${confirmationId}`
-      };
+            const mailOptions = {
+                from: 'niroshini.bmk@gmail.com',
+                to: adminEmail,
+                subject: 'New Registration Request',
+                text: `A new registration request has been made by ${username} (${email}). To approve, please click the following link: http://localhost:8081/api/confirm/${confirmationId}`
+            };
 
-      transporter.sendMail(mailOptions, (error, info) => {
-        if (error) {
-          console.error('Error sending email to admin:', error.message);
-          return res.status(500).json({ error: "An error occurred while sending the email." });
-        }
-        console.log('Email sent to admin:', info.response);
-        res.status(200).json({ message: "Registration request sent to admin for approval." });
-      });
-    });
-  } catch (err) {
-    console.error('Error during registration:', err.message, err.stack);
-    res.status(500).json({ error: "An error occurred during registration." });
-  }
+            transporter.sendMail(mailOptions, (error, info) => {
+                if (error) {
+                    console.error('Error sending email to admin:', error.message);
+                    return res.status(500).json({ error: "An error occurred while sending the email." });
+                }
+                console.log('Email sent to admin:', info.response);
+                res.status(200).json({ message: "Registration request sent to admin for approval." });
+            });
+        });
+    } catch (err) {
+        console.error('Error during registration:', err.message, err.stack);
+        res.status(500).json({ error: "An error occurred during registration." });
+    }
 });
 
-app.get('/confirm/:confirmationId', (req, res) => {
+app.get('/api/confirm/:confirmationId', (req, res) => {
   const { confirmationId } = req.params;
 
   const pendingUser = pendingRegistrations[confirmationId];
@@ -642,7 +643,7 @@ app.get('/confirm/:confirmationId', (req, res) => {
       from: 'niroshini.bmk@gmail.com',
       to: pendingUser.email,
       subject: 'Registration Approved',
-      text: `Hello ${pendingUser.username}, your registration has been approved. You can now log in using the following link: http://localhost:3000/login`
+      text: `Hello ${pendingUser.username}, your registration has been approved. You can now log in using the following link: http://localhost:3000/api/login`
     };
 
     transporter.sendMail(userMailOptions, (error, info) => {
@@ -660,45 +661,48 @@ app.get('/confirm/:confirmationId', (req, res) => {
   });
 });
 
-app.post('/login', (req, res) => {
+app.post('/api/login', (req, res) => {
     const { email, password } = req.body;
-  
+
     if (!email || !password) {
-      return res.status(400).json({ error: "All fields are required." });
+        return res.status(400).json({ error: "All fields are required." });
     }
-  
+
     const sql = "SELECT * FROM student WHERE email = ?";
     db.query(sql, [email], async (err, results) => {
-      if (err) {
-        console.error('Login error:', err.message, err.stack);
-        return res.status(500).json({ error: "An error occurred during login." });
-      }
-  
-      if (results.length > 0) {
-        const user = results[0];
-        
-        // Compare the hashed password
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (isMatch) {
-          const tokenPayload = {
-            id: user.id,
-            username: user.name,
-            email: user.email,
-            department: user.department // Include department in token payload
-          };
-          const token = jwt.sign(tokenPayload, 'secret_key', { expiresIn: '1h' });
-  
-          res.status(200).json({ message: "Login successful!", token, department: user.department }); // Send department in response
-        } else {
-          res.status(401).json({ error: "Invalid email or password." });
+        if (err) {
+            console.error('Login error:', err.message, err.stack);
+            return res.status(500).json({ error: "An error occurred during login." });
         }
-      } else {
-        res.status(401).json({ error: "Invalid email or password." });
-      }
-    });
-  });
 
-app.get('/students', (req, res) => {
+        if (results.length > 0) {
+            const user = results[0];
+
+            // Hash the entered password with crypto
+            const hashedPassword = crypto.createHash('sha256').update(password).digest('hex');
+
+            // Compare the hashed password with the stored password
+            const isMatch = hashedPassword === user.password;
+            if (isMatch) {
+                const tokenPayload = {
+                    id: user.id,
+                    username: user.name,
+                    email: user.email,
+                    department: user.department // Include department in token payload
+                };
+                const token = jwt.sign(tokenPayload, 'secret_key', { expiresIn: '1h' });
+
+                res.status(200).json({ message: "Login successful!", token, department: user.department }); // Send department in response
+            } else {
+                res.status(401).json({ error: "Invalid email or password." });
+            }
+        } else {
+            res.status(401).json({ error: "Invalid email or password." });
+        }
+    });
+});
+
+app.get('/api/students', (req, res) => {
   const token = req.headers['authorization']?.split(' ')[1];
   if (!token) return res.status(401).json({ error: "No token provided." });
 
