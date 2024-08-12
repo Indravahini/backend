@@ -4,7 +4,7 @@ const mysql = require('mysql');
 // const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
+const postmark = require('postmark');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
@@ -558,18 +558,10 @@ app.get('/api/inventory-stats', (req, res) => {
 
 const pendingRegistrations = {};
 
-const adminEmail = 'sit22cs021@sairamtap.edu.in'; // Admin's email address
+const adminEmail = 'sit22cs086@sairamtap.edu.in'; // Admin's email address
 
-
-
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'niroshini.bmk@gmail.com', // Server email
-    pass: 'fjhs rnlw jlqu hxlb'   // App-specific password for server email
-  }
-});
-
+// Postmark client setup
+const postmarkClient = new postmark.ServerClient("f1773897-91cb-43f3-9ea9-a01a44cb1b4b");
 
 app.post('/api/register', async (req, res) => {
     const { username, email, password, department, college } = req.body;
@@ -599,18 +591,18 @@ app.post('/api/register', async (req, res) => {
             pendingRegistrations[confirmationId] = { username, email, hashedPassword, department, college };
 
             const mailOptions = {
-                from: 'niroshini.bmk@gmail.com',
-                to: adminEmail,
-                subject: 'New Registration Request',
-                text: `A new registration request has been made by ${username} (${email}). To approve, please click the following link: http://localhost:8081/api/confirm/${confirmationId}`
+                From: 'sit22cs021@sairamtap.edu.in',
+                To: adminEmail,
+                Subject: 'New Registration Request',
+                TextBody: `A new registration request has been made by ${username} (${email}). To approve, please click the following link: http://localhost:8081/api/confirm/${confirmationId}`
             };
 
-            transporter.sendMail(mailOptions, (error, info) => {
+            postmarkClient.sendEmail(mailOptions, (error, result) => {
                 if (error) {
                     console.error('Error sending email to admin:', error.message);
                     return res.status(500).json({ error: "An error occurred while sending the email." });
                 }
-                console.log('Email sent to admin:', info.response);
+                console.log('Email sent to admin:', result.Message);
                 res.status(200).json({ message: "Registration request sent to admin for approval." });
             });
         });
@@ -640,18 +632,18 @@ app.get('/api/confirm/:confirmationId', (req, res) => {
     const token = jwt.sign(user, 'secret_key', { expiresIn: '1h' });
 
     const userMailOptions = {
-      from: 'niroshini.bmk@gmail.com',
-      to: pendingUser.email,
-      subject: 'Registration Approved',
-      text: `Hello ${pendingUser.username}, your registration has been approved. You can now log in using the following link: http://localhost:3000/api/login`
+      From: 'sit22cs021@sairamtap.edu.in',
+      To: pendingUser.email,
+      Subject: 'Registration Approved',
+      TextBody: `Hello ${pendingUser.username}, your registration has been approved. You can now log in using the following link: http://localhost:3000/api/login`
     };
 
-    transporter.sendMail(userMailOptions, (error, info) => {
+    postmarkClient.sendEmail(userMailOptions, (error, result) => {
       if (error) {
         console.error('Error sending email to user:', error.message);
         return res.status(500).json({ error: "An error occurred while sending the approval email." });
       }
-      console.log('Approval email sent to user:', info.response);
+      console.log('Approval email sent to user:', result.Message);
 
       // Remove from pendingRegistrations
       delete pendingRegistrations[confirmationId];
