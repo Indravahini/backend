@@ -1,9 +1,9 @@
 const express = require('express');
 const cors = require('cors');
-const mysql = require('mysql2');
+const mysql = require('mysql');
 // const bcrypt = require('bcrypt');
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
+const { generateKeyPair, exportJWK, SignJWT, jwtVerify } = require('jose');
 const postmark = require('postmark');
 const { v4: uuidv4 } = require('uuid');
 
@@ -12,12 +12,12 @@ app.use(express.json());
 app.use(cors());
 
 const db = mysql.createConnection({
-    host: 'sql12.freesqldatabase.com',
-    user: 'sql12724285',
-    password: 'Yp15MwJYcm',
-    database: 'sql12724285',
-    port: 3306 
+  host: "localhost",
+  user: "root",
+  password: "computer",
+  database: "inventory"
 });
+
 
 db.connect(err => {
     if (err) {
@@ -557,11 +557,16 @@ app.get('/api/inventory-stats', (req, res) => {
 });   
 
 const pendingRegistrations = {};
-
 const adminEmail = 'sit22cs086@sairamtap.edu.in'; // Admin's email address
 
 // Postmark client setup
 const postmarkClient = new postmark.ServerClient("f1773897-91cb-43f3-9ea9-a01a44cb1b4b");
+
+// Generate RSA key pair (this should ideally be done once and stored securely)
+let privateKey;
+generateKeyPair('RS256').then(({ privateKey: key, publicKey }) => {
+    privateKey = key;
+});
 
 app.post('/api/register', async (req, res) => {
     const { username, email, password, department, college } = req.body;
@@ -612,48 +617,52 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-app.get('/api/confirm/:confirmationId', (req, res) => {
-  const { confirmationId } = req.params;
+app.get('/api/confirm/:confirmationId', async (req, res) => {
+    const { confirmationId } = req.params;
 
-  const pendingUser = pendingRegistrations[confirmationId];
-  if (!pendingUser) {
-    return res.status(400).json({ error: "Invalid or expired confirmation link." });
-  }
-
-  const sql = "INSERT INTO student (name, email, password, department, college) VALUES (?, ?, ?, ?, ?)";
-  db.query(sql, [pendingUser.username, pendingUser.email, pendingUser.hashedPassword, pendingUser.department, pendingUser.college], (err, result) => {
-    if (err) {
-      console.error('Error during registration:', err.message, err.stack);
-      return res.status(500).json({ error: "An error occurred during registration." });
+    const pendingUser = pendingRegistrations[confirmationId];
+    if (!pendingUser) {
+        return res.status(400).json({ error: "Invalid or expired confirmation link." });
     }
-    console.log('User registered successfully:', result);
 
-    const user = { id: result.insertId, username: pendingUser.username, email: pendingUser.email };
-    const token = jwt.sign(user, 'secret_key', { expiresIn: '1h' });
+    const sql = "INSERT INTO student (name, email, password, department, college) VALUES (?, ?, ?, ?, ?)";
+    db.query(sql, [pendingUser.username, pendingUser.email, pendingUser.hashedPassword, pendingUser.department, pendingUser.college], async (err, result) => {
+        if (err) {
+            console.error('Error during registration:', err.message, err.stack);
+            return res.status(500).json({ error: "An error occurred during registration." });
+        }
+        console.log('User registered successfully:', result);
 
-    const userMailOptions = {
-      From: 'sit22cs021@sairamtap.edu.in',
-      To: pendingUser.email,
-      Subject: 'Registration Approved',
-      TextBody: `Hello ${pendingUser.username}, your registration has been approved. You can now log in using the following link: http://localhost:3000/api/login`
-    };
+        const user = { id: result.insertId, username: pendingUser.username, email: pendingUser.email };
 
-    postmarkClient.sendEmail(userMailOptions, (error, result) => {
-      if (error) {
-        console.error('Error sending email to user:', error.message);
-        return res.status(500).json({ error: "An error occurred while sending the approval email." });
-      }
-      console.log('Approval email sent to user:', result.Message);
+        const token = await new SignJWT(user)
+            .setProtectedHeader({ alg: 'RS256' })
+            .setExpirationTime('1h')
+            .sign(privateKey);
 
-      // Remove from pendingRegistrations
-      delete pendingRegistrations[confirmationId];
+        const userMailOptions = {
+            From: 'sit22cs021@sairamtap.edu.in',
+            To: pendingUser.email,
+            Subject: 'Registration Approved',
+            TextBody: `Hello ${pendingUser.username}, your registration has been approved. You can now log in using the following link: http://localhost:3000/api/login`
+        };
 
-      res.status(200).json({ message: "Registration successful!", token, email: pendingUser.email });
+        postmarkClient.sendEmail(userMailOptions, (error, result) => {
+            if (error) {
+                console.error('Error sending email to user:', error.message);
+                return res.status(500).json({ error: "An error occurred while sending the approval email." });
+            }
+            console.log('Approval email sent to user:', result.Message);
+
+            // Remove from pendingRegistrations
+            delete pendingRegistrations[confirmationId];
+
+            res.status(200).json({ message: "Registration successful!", token, email: pendingUser.email });
+        });
     });
-  });
 });
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -682,7 +691,11 @@ app.post('/api/login', (req, res) => {
                     email: user.email,
                     department: user.department // Include department in token payload
                 };
-                const token = jwt.sign(tokenPayload, 'secret_key', { expiresIn: '1h' });
+
+                const token = await new SignJWT(tokenPayload)
+                    .setProtectedHeader({ alg: 'RS256' })
+                    .setExpirationTime('1h')
+                    .sign(privateKey);
 
                 res.status(200).json({ message: "Login successful!", token, department: user.department }); // Send department in response
             } else {
@@ -694,27 +707,29 @@ app.post('/api/login', (req, res) => {
     });
 });
 
-app.get('/api/students', (req, res) => {
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: "No token provided." });
+app.get('/api/students', async (req, res) => {
+    const token = req.headers['authorization']?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: "No token provided." });
 
-  jwt.verify(token, 'secret_key', (err, decoded) => {
-    if (err) return res.status(403).json({ error: "Failed to authenticate token." });
-
-    const sql = "SELECT id, name, email, department, college FROM student";
-    db.query(sql, (err, results) => {
-      if (err) {
-        console.error('Error fetching students:', err.message, err.stack);
-        res.status(500).json({ error: "An error occurred while fetching students." });
-      } else {
-        res.status(200).json(results);
-      }
-    });
-  });
+    try {
+        const { payload } = await jwtVerify(token, publicKey);
+        const sql = "SELECT id, name, email, department, college FROM student";
+        db.query(sql, (err, results) => {
+            if (err) {
+                console.error('Error fetching students:', err.message, err.stack);
+                res.status(500).json({ error: "An error occurred while fetching students." });
+            } else {
+                res.status(200).json(results);
+            }
+        });
+    } catch (err) {
+        console.error('Failed to authenticate token:', err.message, err.stack);
+        res.status(403).json({ error: "Failed to authenticate token." });
+    }
 });
 
 app.use((req, res) => {
-  res.status(404).json({ error: "Not Found" });
+    res.status(404).json({ error: "Not Found" });
 });
 
 app.listen(8081, () => {
