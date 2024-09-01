@@ -651,7 +651,7 @@ app.get('/api/confirm/:confirmationId', async (req, res) => {
             From: 'sit22cs021@sairamtap.edu.in',
             To: pendingUser.email,
             Subject: 'Registration Approved',
-            TextBody: `Hello ${pendingUser.username}, your registration has been approved. You can now log in using the following link: http://localhost:3000/api/login`
+            TextBody: `Hello ${pendingUser.username}, your registration has been approved. You can now log in using the following link: https://frontend-indravahini-indravahinis-projects.vercel.app/api/login`
         };
 
         postmarkClient.sendEmail(userMailOptions, (error, result) => {
