@@ -606,7 +606,7 @@ app.post('/api/register', async (req, res) => {
                 From: 'sit22cs021@sairamtap.edu.in',
                 To: adminEmail,
                 Subject: 'New Registration Request',
-                TextBody: `A new registration request has been made by ${username} (${email}). To approve, please click the following link: http://localhost:8081/api/confirm/${confirmationId}`
+                TextBody: `A new registration request has been made by ${username} (${email}). To approve, please click the following link: https://backend-iuq5.vercel.app/api/confirm/${confirmationId}`
             };
 
             postmarkClient.sendEmail(mailOptions, (error, result) => {
