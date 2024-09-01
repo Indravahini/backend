@@ -731,4 +731,8 @@ app.get('/api/students', async (req, res) => {
 app.use((req, res) => {
     res.status(404).json({ error: "Not Found" });
 });
+module.exports = app;
 
+app.listen(8081, () => {
+    console.log("Server running on port 8081");
+});
