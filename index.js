@@ -606,7 +606,7 @@ app.post('/api/register', async (req, res) => {
                 From: 'sit22cs021@sairamtap.edu.in',
                 To: adminEmail,
                 Subject: 'New Registration Request',
-                TextBody: `A new registration request has been made by ${username} (${email}). To approve, please click the following link: https://backend-iuq5.vercel.app/api/confirm/${confirmationId}`
+                TextBody: `A new registration request has been made by ${username} (${email}). To approve, please click the following link: https://localhost:8081/api/confirm/${confirmationId}`
             };
 
             postmarkClient.sendEmail(mailOptions, (error, result) => {
@@ -651,7 +651,7 @@ app.get('/api/confirm/:confirmationId', async (req, res) => {
             From: 'sit22cs021@sairamtap.edu.in',
             To: pendingUser.email,
             Subject: 'Registration Approved',
-            TextBody: `Hello ${pendingUser.username}, your registration has been approved. You can now log in using the following link: https://frontend-indravahini-indravahinis-projects.vercel.app/api/login`
+            TextBody: `Hello ${pendingUser.username}, your registration has been approved. You can now log in using the following link: https://localhost:3000/api/login`
         };
 
         postmarkClient.sendEmail(userMailOptions, (error, result) => {
