@@ -9,6 +9,12 @@ const { generateKeyPair, exportJWK, SignJWT, jwtVerify } = require('jose');
 const postmark = require('postmark');
 const { v4: uuidv4 } = require('uuid');
 
+app.use(cors({
+  origin: 'https://frontend-i66nok8v3-indravahinis-projects.vercel.app',
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: true
+}));
+
 const app = express();
 app.use(express.json());
 const db = mysql.createConnection({
