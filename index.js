@@ -12,7 +12,7 @@ const { v4: uuidv4 } = require('uuid');
 const app = express();
 
 app.use(cors({
-    origin: ['https://frontend2-umber.vercel.app'],
+    origin: ['https://frontend2-umber.vercel.app/'],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));
