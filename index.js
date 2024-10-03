@@ -218,44 +218,6 @@ app.delete('/api/product/:id', (req, res) => {
     });
 });
 
-const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
-
-app.post('/api/upload', upload.single('file'), (req, res) => {
-    const file = req.file;
-    if (!file) {
-        return res.status(400).send('No file uploaded');
-    }
-
-    // Parse the uploaded Excel file
-    const workbook = xlsx.read(file.buffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0]; // Assuming data is in the first sheet
-    const worksheet = workbook.Sheets[sheetName];
-    const rows = xlsx.utils.sheet_to_json(worksheet);
-
-    // Prepare SQL Insert Statement
-    const insertPromises = rows.map(row => {
-        const { name, id, count, used, destroyed, current_stock, category, Location, barcode, incharge_name, incharge_phoneno, incharge_mail } = row;
-
-        const sql = 'INSERT INTO product (name, id, count, used, destroyed, current_stock, category, Location, barcode, incharge_name, incharge_phoneno, incharge_mail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
-        return new Promise((resolve, reject) => {
-            db.query(sql, [name, id, count, used, destroyed, current_stock, category, Location, barcode, incharge_name, incharge_phoneno, incharge_mail], (err) => {
-                if (err) {
-                    console.log('Error inserting row: ', err);
-                    reject(err);
-                } else {
-                    resolve();
-                }
-            });
-        });
-    });
-
-    // Wait for all insertions to complete
-    Promise.all(insertPromises)
-        .then(() => res.send('File uploaded and data inserted into MySQL'))
-        .catch(err => res.status(500).send('Error inserting data'));
-});
-
 // Retrieve all stocks
 app.get('/api/stock', (req, res) => {
     const department = req.query.department;
