@@ -1,23 +1,21 @@
-require('dotenv').config();
-
 const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql');
-// const bcrypt = require('bcrypt');
 const crypto = require('crypto');
-const { generateKeyPair, exportJWK, SignJWT, jwtVerify } = require('jose');
+const { generateKeyPair, SignJWT, jwtVerify } = require('jose');
 const postmark = require('postmark');
 const { v4: uuidv4 } = require('uuid');
+const Busboy = require('busboy');
+const xlsx = require('xlsx');
 
 const app = express();
-
+app.use(express.json());
 app.use(cors({
     origin: ['https://incubation-wn5f.vercel.app'],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));
 
-app.use(express.json());
 const db = mysql.createConnection({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
@@ -35,17 +33,45 @@ db.connect(err => {
 });
 
 
-// Retrieve all products
 app.get('/api/', (req, res) => {
     const department = req.query.department;  
     const location = req.query.location;
+    const category = req.query.category; 
+    const stockFilter = req.query.stock;
+    const search = req.query.search; // Retrieve search term
 
     let query = 'SELECT * FROM product';
     let queryParams = [];
 
+    let whereConditions = [];
+
     if (department !== 'Management' && location) {
-        query += ' WHERE Location = ?';
+        whereConditions.push('Location = ?');
         queryParams.push(location);
+    }
+
+    // Filter by category
+    if (category) {
+        whereConditions.push('category = ?');
+        queryParams.push(category);
+    }
+
+    // Filter by stock status
+    if (stockFilter === 'in_stock') {
+        whereConditions.push('current_stock > 0');
+    } else if (stockFilter === 'no_stock') {
+        whereConditions.push('current_stock = 0');
+    }
+
+    // Search query
+    if (search) {
+        whereConditions.push('(name LIKE ? OR id LIKE ?)');
+        queryParams.push(`%${search}%`, `%${search}%`); // Add wildcard search
+    }
+
+    // Construct the query
+    if (whereConditions.length) {
+        query += ' WHERE ' + whereConditions.join(' AND ');
     }
 
     db.query(query, queryParams, (err, results) => {
@@ -55,7 +81,8 @@ app.get('/api/', (req, res) => {
         }
         return res.json(results);
     });
-}); 
+});
+
 
 // Retrieve a product by ID
 app.get("/api/product/:id", (req, res) => {
@@ -214,6 +241,39 @@ app.delete('/api/product/:id', (req, res) => {
         console.log('Deleted product with S.no:', id);
         return res.json({ message: 'Product deleted successfully' });
     });
+});
+
+app.post('/api/upload', (req, res) => {
+    const busboy = new Busboy({ headers: req.headers });
+    let fileBuffer;
+
+    busboy.on('file', (fieldname, file, filename, encoding, mimetype) => {
+        const chunks = [];
+        file.on('data', (data) => {
+            chunks.push(data);
+        }).on('end', () => {
+            fileBuffer = Buffer.concat(chunks);
+
+            // Parse the uploaded Excel file
+            const workbook = xlsx.read(fileBuffer, { type: 'buffer' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            const rows = xlsx.utils.sheet_to_json(worksheet);
+            
+            // Here, you can insert the rows into your MySQL database
+            // ...
+
+            res.send('File uploaded and processed successfully');
+        });
+    });
+
+    busboy.on('finish', () => {
+        if (!fileBuffer) {
+            return res.status(400).send('No file uploaded');
+        }
+    });
+
+    req.pipe(busboy);
 });
 
 // Retrieve all stocks
@@ -573,6 +633,10 @@ generateKeyPair('RS256').then(({ privateKey: key, publicKey }) => {
     privateKey = key;
 });
 
+// Password reset token validity duration
+const resetTokenValidityDuration = 1 * 60 * 60 * 1000; // 1 hour
+
+// Registration endpoint
 app.post('/api/register', async (req, res) => {
     const { username, email, password, department, college } = req.body;
 
@@ -622,6 +686,7 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
+// Confirm registration endpoint
 app.get('/api/confirm/:confirmationId', async (req, res) => {
     const { confirmationId } = req.params;
 
@@ -645,13 +710,12 @@ app.get('/api/confirm/:confirmationId', async (req, res) => {
             .setExpirationTime('1h')
             .sign(privateKey);
 
-const userMailOptions = {
+  const userMailOptions = {
     From: 'sit22cs021@sairamtap.edu.in',
     To: pendingUser.email,
     Subject: 'Registration Approved',
     TextBody: `Hello ${pendingUser.username}, your registration has been approved. You can now log in using the following link: ${process.env.FRONTEND_URL}/login`
 };
-
 
         postmarkClient.sendEmail(userMailOptions, (error, result) => {
             if (error) {
@@ -668,6 +732,7 @@ const userMailOptions = {
     });
 });
 
+// Login endpoint
 app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
 
@@ -713,28 +778,102 @@ app.post('/api/login', async (req, res) => {
     });
 });
 
-app.get('/api/students', async (req, res) => {
-    const token = req.headers['authorization']?.split(' ')[1];
-    if (!token) return res.status(401).json({ error: "No token provided." });
+// Forget password endpoint
+app.post('/api/forgot-password', (req, res) => {
+    const { email } = req.body;
 
-    try {
-        const { payload } = await jwtVerify(token, publicKey);
-        const sql = "SELECT id, name, email, department, college FROM student";
-        db.query(sql, (err, results) => {
-            if (err) {
-                console.error('Error fetching students:', err.message, err.stack);
-                res.status(500).json({ error: "An error occurred while fetching students." });
-            } else {
-                res.status(200).json(results);
-            }
-        });
-    } catch (err) {
-        console.error('Failed to authenticate token:', err.message, err.stack);
-        res.status(403).json({ error: "Failed to authenticate token." });
+    if (!email) {
+        return res.status(400).json({ error: "Email is required." });
     }
+
+    const sqlCheckEmail = "SELECT * FROM student WHERE email = ?";
+    db.query(sqlCheckEmail, [email], (err, result) => {
+        if (err) {
+            console.error('Error during email check:', err.message);
+            return res.status(500).json({ error: "An error occurred." });
+        }
+
+        if (result.length === 0) {
+            return res.status(400).json({ error: "Email does not exist." });
+        }
+
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+        const expiresAt = new Date(Date.now() + resetTokenValidityDuration); // Token valid for 1 hour
+
+        const sqlInsertToken = "INSERT INTO password_resets (email, token, expires_at) VALUES (?, ?, ?)";
+        db.query(sqlInsertToken, [email, resetTokenHash, expiresAt], (err) => {
+            if (err) {
+                console.error('Error storing reset token:', err.message);
+                return res.status(500).json({ error: "An error occurred while creating reset token." });
+            }
+
+            const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}&email=${email}`;
+            const mailOptions = {
+                From: 'sit22cs021@sairamtap.edu.in',
+                To: email,
+                Subject: 'Password Reset Request',
+                TextBody: `You have requested to reset your password. Please click the link to reset your password: ${resetUrl}`
+            };
+
+            postmarkClient.sendEmail(mailOptions, (error, result) => {
+                if (error) {
+                    console.error('Error sending password reset email:', error.message);
+                    return res.status(500).json({ error: "An error occurred while sending the email." });
+                }
+                console.log('Password reset email sent:', result.Message);
+                res.status(200).json({ message: "Password reset email sent." });
+            });
+        });
+    });
+});
+
+// Reset password endpoint
+app.post('/api/reset-password', (req, res) => {
+    const { email, token, newPassword } = req.body;
+
+    if (!email || !token || !newPassword) {
+        return res.status(400).json({ error: "All fields are required." });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const sqlFindToken = "SELECT * FROM password_resets WHERE email = ? AND token = ? AND expires_at > NOW()";
+
+    db.query(sqlFindToken, [email, tokenHash], (err, result) => {
+        if (err) {
+            console.error('Error finding reset token:', err.message);
+            return res.status(500).json({ error: "An error occurred." });
+        }
+
+        if (result.length === 0) {
+            return res.status(400).json({ error: "Invalid or expired token." });
+        }
+
+        const hashedPassword = crypto.createHash('sha256').update(newPassword).digest('hex');
+        const sqlUpdatePassword = "UPDATE student SET password = ? WHERE email = ?";
+
+        db.query(sqlUpdatePassword, [hashedPassword, email], (err) => {
+            if (err) {
+                console.error('Error updating password:', err.message);
+                return res.status(500).json({ error: "An error occurred while updating the password." });
+            }
+
+            // Delete the token after successful reset
+            const sqlDeleteToken = "DELETE FROM password_resets WHERE email = ?";
+            db.query(sqlDeleteToken, [email], (err) => {
+                if (err) {
+                    console.error('Error deleting reset token:', err.message);
+                }
+                res.status(200).json({ message: "Password has been successfully reset." });
+            });
+        });
+    });
 });
 
 app.use((req, res) => {
-    res.status(404).json({ error: "Not Found" });
+  res.status(404).send('404 Not Found');
 });
+
+
 module.exports = app;
